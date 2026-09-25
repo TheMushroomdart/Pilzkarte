@@ -1,2 +1,3 @@
 # Pilzkarte
-Pilzkarte um Pilzfundorte zu suchen
+Pilzkarte um mögliche Pilzfundorte zu finden. Android-App.
+Keine Gewährleistung.
