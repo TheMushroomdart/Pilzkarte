@@ -1,31 +1,67 @@
 name: APK bauen
+
+# Baut die App bei jeder Änderung auf main (z. B. neue PilzKarte.zip oder Claude-Update)
+# und veröffentlicht sie unter „Releases“. Reine Text-Änderungen (*.md) lösen keinen Bau aus.
 on:
   push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/**"
+      - "tools/**"
   workflow_dispatch:
+
 permissions:
   contents: write
+
+concurrency:
+  group: apk-bauen
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "8.9"
-      - name: APK bauen
+
+      - name: Projekt vorbereiten
         run: |
+          # Eine hochgeladene PilzKarte.zip hat Vorrang und wird über die Dateien entpackt
           for f in *.zip; do if [ -f "$f" ]; then unzip -q -o "$f"; fi; done
-          if [ -d PilzKarte ]; then cd PilzKarte; fi
-          if [ ! -d app ]; then echo "Noch keine PilzKarte.zip hochgeladen"; exit 0; fi
+          if [ -d PilzKarte/app ]; then cp -a PilzKarte/. . ; rm -rf PilzKarte; fi
+          if [ -d app ]; then echo "PROJEKT=ja" >> "$GITHUB_ENV"; else echo "Noch kein Projekt hochgeladen."; fi
+
+      - name: JavaScript prüfen
+        if: env.PROJEKT == 'ja'
+        run: |
+          for f in app/src/main/assets/*.js; do node --check "$f"; done
+
+      - name: APK bauen
+        if: env.PROJEKT == 'ja'
+        run: |
           gradle assembleRelease --no-daemon
-          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/PilzKarte.apk"
-      - name: APK veroeffentlichen
-        if: hashFiles('PilzKarte.apk') != ''
-        uses: softprops/action-gh-release@v2
+          cp app/build/outputs/apk/release/app-release.apk PilzKarte.apk
+
+      - name: Versionshinweise
+        if: env.PROJEKT == 'ja'
+        run: |
+          if [ -f CHANGELOG.md ]; then awk '/^## /{n++} n==1' CHANGELOG.md | head -c 3000 > notes.md; fi
+          if [ ! -s notes.md ]; then echo "Neue Version der PilzKarte." > notes.md; fi
+
+      - name: APK veröffentlichen
+        if: env.PROJEKT == 'ja'
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v1.0.${{ github.run_number }}
+          name: PilzKarte 1.0.${{ github.run_number }}
+          body_path: notes.md
           files: PilzKarte.apk
